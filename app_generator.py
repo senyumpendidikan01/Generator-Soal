@@ -186,7 +186,8 @@ with tab1:
             st.error("Mohon masukkan API Key Google Gemini di Sidebar sebelah kiri.")
         else:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # PERBAIKAN: Menggunakan model 'gemini-pro' yang lebih stabil
+            model = genai.GenerativeModel('gemini-pro')
 
             # --- STEP 1: MEMBANGUN PROMPT CERDAS ---
             base_prompt = f"""
@@ -268,11 +269,8 @@ with tab1:
                         elif tipe_vis == "IMAGE":
                             st.caption("🎨 Membuat Ilustrasi (Simulasi Image Gen)...")
                             # Karena kita pakai Free API Gemini (Text Only), kita pakai Placeholder dulu
-                            # Jika Anda punya DALL-E Key, kodenya dimasukkan di sini.
-                            # Untuk Demo "Mahakarya", kita gunakan visualisasi konsep.
                             st.info(f"[Mode Demo] Prompt Gambar dikirim ke AI: {item['deskripsi_visual']}")
                             st.markdown("*(Fitur Generate Image asli membutuhkan API Key DALL-E/Imagen berbayar. Di versi demo ini gambar diskip agar tidak error)*")
-                            # visual_buffer = None # Diaktifkan jika sudah ada API Image
                         
                         st.write(item['pertanyaan'])
                         if 'pilihan' in item:
