@@ -186,8 +186,36 @@ with tab1:
             st.error("Mohon masukkan API Key Google Gemini di Sidebar sebelah kiri.")
         else:
             genai.configure(api_key=api_key)
-            # PERBAIKAN: Menggunakan model 'gemini-pro' yang lebih stabil
-            model = genai.GenerativeModel('gemini-pro')
+            
+            # --- AUTO-DETECT MODEL (Perbaikan Anti-Error) ---
+            # Kita cek dulu model apa yang tersedia untuk API Key Anda
+            available_models = []
+            try:
+                for m in genai.list_models():
+                    if 'generateContent' in m.supported_generation_methods:
+                        available_models.append(m.name)
+            except Exception as e:
+                st.error(f"Gagal koneksi ke Google AI. Cek API Key Anda. Error: {e}")
+                st.stop()
+            
+            # Logika Pemilihan Model
+            final_model_name = ""
+            # Prioritas 1: Flash (Cepat & Gratis)
+            if any("gemini-1.5-flash" in m for m in available_models):
+                final_model_name = "gemini-1.5-flash"
+            # Prioritas 2: Pro (Stabil)
+            elif any("gemini-pro" in m for m in available_models):
+                final_model_name = "gemini-pro"
+            # Darurat: Pakai apa saja yang ada
+            elif len(available_models) > 0:
+                final_model_name = available_models[0]
+            else:
+                st.error("Tidak ada model AI yang tersedia untuk API Key ini.")
+                st.stop()
+
+            # Inisialisasi Model Terpilih
+            st.toast(f"✅ Menggunakan Model: {final_model_name}")
+            model = genai.GenerativeModel(final_model_name)
 
             # --- STEP 1: MEMBANGUN PROMPT CERDAS ---
             base_prompt = f"""
