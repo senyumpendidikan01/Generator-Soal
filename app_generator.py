@@ -187,26 +187,33 @@ with tab1:
         else:
             genai.configure(api_key=api_key)
             
-            # --- AUTO-DETECT MODEL (Perbaikan Anti-Error) ---
-            # Kita cek dulu model apa yang tersedia untuk API Key Anda
+            # --- AUTO-DETECT MODEL (Perbaikan Anti-Error 404) ---
+            # Kita ambil list model yang tersedia dan pakai NAMA ASLINYA
             available_models = []
             try:
                 for m in genai.list_models():
                     if 'generateContent' in m.supported_generation_methods:
                         available_models.append(m.name)
             except Exception as e:
-                st.error(f"Gagal koneksi ke Google AI. Cek API Key Anda. Error: {e}")
-                st.stop()
+                # Jika gagal list, kita coba tembak langsung Flash
+                available_models = ["models/gemini-1.5-flash"]
             
-            # Logika Pemilihan Model
+            # Logika Pemilihan Model dengan Nama Lengkap
             final_model_name = ""
-            # Prioritas 1: Flash (Cepat & Gratis)
-            if any("gemini-1.5-flash" in m for m in available_models):
-                final_model_name = "gemini-1.5-flash"
-            # Prioritas 2: Pro (Stabil)
-            elif any("gemini-pro" in m for m in available_models):
-                final_model_name = "gemini-pro"
-            # Darurat: Pakai apa saja yang ada
+            
+            # Cari yang mengandung string "flash" (versi terbaru & cepat)
+            flash_models = [m for m in available_models if "gemini-1.5-flash" in m]
+            # Cari yang mengandung string "pro" 1.5 (versi stabil)
+            pro_15_models = [m for m in available_models if "gemini-1.5-pro" in m]
+            # Cari yang mengandung string "pro" 1.0 (versi lama)
+            pro_10_models = [m for m in available_models if "gemini-pro" in m]
+
+            if flash_models:
+                final_model_name = flash_models[0] # Pakai nama asli, misal: models/gemini-1.5-flash-001
+            elif pro_15_models:
+                final_model_name = pro_15_models[0]
+            elif pro_10_models:
+                final_model_name = pro_10_models[0]
             elif len(available_models) > 0:
                 final_model_name = available_models[0]
             else:
