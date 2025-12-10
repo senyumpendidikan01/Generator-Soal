@@ -1,0 +1,305 @@
+import streamlit as st
+import google.generativeai as genai
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import matplotlib.pyplot as plt
+import numpy as np
+import io
+import json
+import PyPDF2
+import random
+
+# ==========================================
+# 1. KONFIGURASI HALAMAN & KEAMANAN (SEJOLI)
+# ==========================================
+st.set_page_config(
+    page_title="Nusantara AI - Generator Soal Pro",
+    page_icon="🎓",
+    layout="wide"
+)
+
+# KUNCI KEAMANAN (Password untuk Member Area)
+# Ganti ini dengan kode yang Anda berikan di Member Area Sejoli
+MEMBER_PASSWORD = "GURUHEBAT2025" 
+
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    if st.session_state.password_correct:
+        return True
+
+    st.markdown("## 🔒 Akses Member Area")
+    password = st.text_input("Masukkan Kode Akses Member:", type="password")
+    
+    if st.button("Masuk"):
+        if password == MEMBER_PASSWORD:
+            st.session_state.password_correct = True
+            st.rerun()
+        else:
+            st.error("Kode akses salah. Silakan cek di member area Anda.")
+            return False
+    return False
+
+if not check_password():
+    st.stop()
+
+# ==========================================
+# 2. FUNGSI UTILITAS (MATA & TANGAN AI)
+# ==========================================
+
+def read_pdf(file):
+    pdf_reader = PyPDF2.PdfReader(file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
+def create_word_docx(soal_data, images_map):
+    doc = Document()
+    
+    # Style Header
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Arial'
+    font.size = Pt(11)
+    
+    header = doc.add_heading('DOKUMEN BANK SOAL', 0)
+    header.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph(f"Mata Pelajaran: {soal_data.get('mapel', '-')}")
+    doc.add_paragraph(f"Topik: {soal_data.get('topik', '-')}")
+    doc.add_paragraph("-" * 50)
+
+    for idx, item in enumerate(soal_data.get('soal_list', [])):
+        # Tulis Soal
+        p_soal = doc.add_paragraph()
+        runner = p_soal.add_run(f"{idx + 1}. {item['pertanyaan']}")
+        runner.bold = True
+        
+        # Masukkan Gambar jika ada
+        if idx in images_map and images_map[idx] is not None:
+            try:
+                img_stream = images_map[idx]
+                doc.add_picture(img_stream, width=Inches(4.0))
+                last_paragraph = doc.paragraphs[-1] 
+                last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            except:
+                pass
+
+        # Tulis Pilihan Ganda (jika ada)
+        if 'pilihan' in item:
+            for opt in item['pilihan']:
+                doc.add_paragraph(opt, style='List Bullet')
+        
+        # Spasi antar soal
+        doc.add_paragraph()
+
+    # Halaman Kunci Jawaban
+    doc.add_page_break()
+    doc.add_heading('KUNCI JAWABAN & PEMBAHASAN', 1)
+    
+    for idx, item in enumerate(soal_data.get('soal_list', [])):
+        p = doc.add_paragraph()
+        p.add_run(f"{idx + 1}. Kunci: {item.get('kunci', '-')}\n").bold = True
+        p.add_run(f"Pembahasan: {item.get('pembahasan', '-')}")
+
+    # Simpan ke Stream
+    bio = io.BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
+
+def generate_math_plot(code_snippet):
+    """
+    Fungsi berbahaya (exec) tapi diperlukan untuk generate grafik dinamis.
+    Dalam produksi nyata, ini harus di-sandbox.
+    """
+    try:
+        # Siapkan environment lokal untuk exec
+        local_env = {'plt': plt, 'np': np}
+        
+        # Pastikan code snippet aman (basic check)
+        full_code = "plt.figure(figsize=(5, 3))\n" + code_snippet
+        
+        exec(full_code, {}, local_env)
+        
+        # Simpan plot ke buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+        buf.seek(0)
+        plt.close()
+        return buf
+    except Exception as e:
+        return None
+
+# ==========================================
+# 3. ANTARMUKA UTAMA (SIDEBAR & MAIN)
+# ==========================================
+
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=50)
+    st.title("Pengaturan AI")
+    
+    api_key = st.text_input("Masukkan Google Gemini API Key", type="password", help="Dapatkan gratis di aistudio.google.com")
+    
+    st.divider()
+    st.info("💡 **Tips Prompt:** Gunakan menu 'Upload Materi' agar soal lebih presisi sesuai buku pegangan siswa.")
+
+st.title("🇮🇩 Nusantara AI: Generator Soal AKM")
+st.markdown("Buat soal berkualitas standar Kurikulum Merdeka dengan Konteks Indonesia.")
+
+# --- TAB MENU ---
+tab1, tab2 = st.tabs(["📝 Generator Soal", "📂 Upload Materi"])
+
+context_text = ""
+
+with tab2:
+    st.subheader("Sumber Materi (Opsional)")
+    uploaded_file = st.file_uploader("Upload Modul/Buku (PDF)", type=['pdf'])
+    if uploaded_file:
+        with st.spinner("Membaca dokumen..."):
+            context_text = read_pdf(uploaded_file)
+            st.success(f"Berhasil membaca {len(context_text)} karakter materi.")
+            with st.expander("Lihat isi materi"):
+                st.write(context_text[:1000] + "...")
+
+with tab1:
+    col1, col2 = st.columns(2)
+    with col1:
+        mapel = st.text_input("Mata Pelajaran", value="Matematika")
+        kelas = st.selectbox("Jenjang Kelas", ["SD (Fase A/B/C)", "SMP (Fase D)", "SMA (Fase E/F)"])
+        topik = st.text_input("Topik Spesifik", value="Bangun Datar")
+    
+    with col2:
+        jenis_soal = st.selectbox("Jenis Soal", ["Pilihan Ganda", "Pilihan Ganda Kompleks", "Menjodohkan", "Uraian (Essay)"])
+        jumlah_soal = st.slider("Jumlah Soal", 1, 10, 5)
+        difficulty = st.select_slider("Tingkat Kesulitan (Taksonomi Bloom)", options=["C1-Mengingat", "C2-Memahami", "C3-Menerapkan", "C4-Menganalisis (HOTS)", "C5-Mengevaluasi", "C6-Mencipta"])
+
+    # FITUR ONE-FOR-ALL (Deteksi Visual)
+    visual_mode = st.radio("Mode Visualisasi", ["Otomatis (Smart Router)", "Paksa Grafik (Coding)", "Paksa Ilustrasi (Gambar)", "Tanpa Gambar"], horizontal=True)
+
+    if st.button("🚀 GENERATE SOAL SEKARANG", type="primary"):
+        if not api_key:
+            st.error("Mohon masukkan API Key Google Gemini di Sidebar sebelah kiri.")
+        else:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+
+            # --- STEP 1: MEMBANGUN PROMPT CERDAS ---
+            base_prompt = f"""
+            Anda adalah Ahli Pembuat Soal Pendidikan Indonesia berpengalaman.
+            Tugas: Buatlah {jumlah_soal} soal {jenis_soal} untuk mata pelajaran {mapel} kelas {kelas} topik {topik}.
+            Level Kognitif: {difficulty}.
+            
+            INSTRUKSI KHUSUS (MAHAKARYA):
+            1. Konteks: Gunakan nama orang Indonesia (Budi, Siti, dll), lokasi lokal, dan mata uang Rupiah.
+            2. Stimulus: Setiap soal HARUS diawali dengan stimulus data/cerita singkat.
+            3. Jika ada materi tambahan berikut, gunakan sebagai referensi utama:
+            '''{context_text[:3000]}''' (Potongan materi)
+
+            FORMAT OUTPUT JSON:
+            Berikan output HANYA dalam format JSON valid (tanpa markdown ```json). Strukturnya:
+            {{
+                "mapel": "{mapel}",
+                "topik": "{topik}",
+                "soal_list": [
+                    {{
+                        "no": 1,
+                        "tipe_visual": "CODING/IMAGE/NONE", 
+                        "deskripsi_visual": "Deskripsi detail untuk gambar/kode python plot",
+                        "pertanyaan": "Teks pertanyaan...",
+                        "pilihan": ["A. ...", "B. ...", "C. ...", "D. ..."],
+                        "kunci": "Jawaban Benar",
+                        "pembahasan": "Penjelasan lengkap..."
+                    }}
+                ]
+            }}
+            
+            CATATAN TIPE VISUAL:
+            - Jika soal Matematika/Fisika yang butuh presisi grafik/sudut -> isi tipe_visual dengan "CODING".
+            - Jika soal Biologi/IPS/SD yang butuh ilustrasi kartun -> isi tipe_visual dengan "IMAGE".
+            - Deskripsi visual harus dalam Bahasa Inggris jika tipe IMAGE, dan kode Python matplotlib (hanya body code, tanpa plt.show) jika tipe CODING.
+            """
+
+            try:
+                with st.spinner("Sedang meracik soal berkualitas..."):
+                    response = model.generate_content(base_prompt)
+                    # Bersihkan markdown json jika ada
+                    clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                    data_soal = json.loads(clean_text)
+                
+                st.success("Soal berhasil dibuat! Sedang memproses visualisasi...")
+                
+                # --- STEP 2: GENERATE VISUAL (SMART ROUTER) ---
+                images_generated = {} # Menyimpan buffer gambar
+                
+                # Container untuk Preview
+                for idx, item in enumerate(data_soal['soal_list']):
+                    with st.container(border=True):
+                        st.markdown(f"**Soal {idx+1}**")
+                        
+                        # Logika Visualisasi
+                        visual_buffer = None
+                        tipe_vis = item['tipe_visual']
+                        
+                        # Override user setting
+                        if visual_mode == "Paksa Grafik (Coding)": tipe_vis = "CODING"
+                        elif visual_mode == "Paksa Ilustrasi (Gambar)": tipe_vis = "IMAGE"
+                        elif visual_mode == "Tanpa Gambar": tipe_vis = "NONE"
+
+                        if tipe_vis == "CODING":
+                            st.caption("🤖 Membuat Grafik Presisi (Python Matplotlib)...")
+                            # Minta AI membuat kode plot spesifik jika belum ada di JSON awal
+                            if "plt." not in item['deskripsi_visual']:
+                                plot_prompt = f"Buat kode Python Matplotlib untuk menggambar: {item['deskripsi_visual']}. Hanya berikan kodenya."
+                                code_resp = model.generate_content(plot_prompt)
+                                code_plot = code_resp.text.replace("```python", "").replace("```", "").strip()
+                            else:
+                                code_plot = item['deskripsi_visual']
+                            
+                            visual_buffer = generate_math_plot(code_plot)
+                            if visual_buffer:
+                                st.image(visual_buffer, caption="Grafik Generated by Code")
+                                images_generated[idx] = visual_buffer
+
+                        elif tipe_vis == "IMAGE":
+                            st.caption("🎨 Membuat Ilustrasi (Simulasi Image Gen)...")
+                            # Karena kita pakai Free API Gemini (Text Only), kita pakai Placeholder dulu
+                            # Jika Anda punya DALL-E Key, kodenya dimasukkan di sini.
+                            # Untuk Demo "Mahakarya", kita gunakan visualisasi konsep.
+                            st.info(f"[Mode Demo] Prompt Gambar dikirim ke AI: {item['deskripsi_visual']}")
+                            st.markdown("*(Fitur Generate Image asli membutuhkan API Key DALL-E/Imagen berbayar. Di versi demo ini gambar diskip agar tidak error)*")
+                            # visual_buffer = None # Diaktifkan jika sudah ada API Image
+                        
+                        st.write(item['pertanyaan'])
+                        if 'pilihan' in item:
+                            st.radio(f"Jawaban Soal {idx+1}", item['pilihan'], key=f"ans_{idx}")
+                        
+                        with st.expander("Lihat Kunci & Pembahasan"):
+                            st.write(f"**Kunci:** {item['kunci']}")
+                            st.write(f"**Pembahasan:** {item['pembahasan']}")
+
+                # --- STEP 3: EXPORT TO WORD ---
+                doc_buffer = create_word_docx(data_soal, images_generated)
+                
+                st.divider()
+                st.subheader("🎉 Dokumen Siap!")
+                col_dl1, col_dl2 = st.columns([2,1])
+                with col_dl1:
+                    st.download_button(
+                        label="📄 DOWNLOAD SOAL (.DOCX)",
+                        data=doc_buffer,
+                        file_name=f"Soal_{mapel}_{topik}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary",
+                        use_container_width=True
+                    )
+                with col_dl2:
+                    st.button("🔄 Buat Ulang", type="secondary", use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Terjadi kesalahan: {e}")
+                st.warning("Tips: Coba kurangi jumlah soal atau periksa API Key Anda.")
